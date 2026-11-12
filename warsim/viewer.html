@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>warsim 재생</title>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #d9d8d2;
+  --flat: #e9eadf; --mount: #b9ad93; --grid: #d4d4c8;
+  --blue: #2f5fb3; --blue-soft: #c9d6f0; --red: #b8322a; --red-soft: #f0cfcb;
+  --accent: #1d1d1b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161714; --panel: #1f201d; --ink: #ecebe6; --muted: #9a9991; --line: #34352f;
+    --flat: #2a2c26; --mount: #4d4636; --grid: #3a3c34;
+    --blue: #6f9be6; --blue-soft: #263a5e; --red: #e2685f; --red-soft: #5a2826;
+    --accent: #ecebe6;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline;
+  padding: 14px 16px 8px; border-bottom: 1px solid var(--line); }
+header h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.stat { color: var(--muted); font-variant-numeric: tabular-nums; }
+.stat b { color: var(--ink); font-weight: 600; }
+.blue { color: var(--blue); } .red { color: var(--red); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 0; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+#mapwrap { padding: 12px 16px; overflow: auto; }
+svg#map { width: 100%; max-width: none; height: auto; display: block; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; }
+aside { border-left: 1px solid var(--line); padding: 12px 16px; background: var(--panel); min-height: 100%; }
+@media (max-width: 900px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+aside h2 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); font-weight: 600; }
+aside h2:first-child { margin-top: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px;
+  border-bottom: 1px solid var(--line); }
+button, select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+button:hover, select:hover { border-color: var(--muted); }
+button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+input[type=range] { flex: 1 1 200px; min-width: 120px; accent-color: var(--accent); }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 5px 0 0 5px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 5px 5px 0; }
+.piece { border-top: 1px solid var(--line); padding: 7px 0; }
+.piece .name { font-weight: 600; }
+.bars { display: grid; grid-template-columns: 34px 1fr 38px; gap: 2px 6px; font-size: 12px;
+  color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--muted); }
+.legend { display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px; font-size: 12px; align-items: center; }
+.empty { color: var(--muted); font-size: 13px; }
+#chart { width: 100%; height: 90px; display: block; }
+.hint { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>warsim 재생</h1>
+  <span class="stat">턴 <b id="s-turn"></b> / <span id="s-max"></span></span>
+  <span class="stat">작전 시간 <b id="s-time"></b></span>
+  <span class="stat"><span class="blue">청</span> 전투력 <b id="s-p0"></b> · 말 <b id="s-n0"></b></span>
+  <span class="stat"><span class="red">홍</span> 전투력 <b id="s-p1"></b> · 말 <b id="s-n1"></b></span>
+  <span class="stat">목표 점유 <span class="blue" id="s-h0"></span> / <span class="red" id="s-h1"></span></span>
+  <span class="stat"><b id="s-result"></b></span>
+</header>
+<div class="controls">
+  <button id="b-first" title="처음">⏮</button>
+  <button id="b-prev" title="이전 턴 (←)">◀</button>
+  <button id="b-play" title="재생/정지 (스페이스)">▶ 재생</button>
+  <button id="b-next" title="다음 턴 (→)">▶</button>
+  <button id="b-last" title="마지막">⏭</button>
+  <input type="range" id="slider" min="0" value="0">
+  <select id="speed" title="재생 속도">
+    <option value="600">느리게</option><option value="250" selected>보통</option><option value="80">빠르게</option>
+  </select>
+  <span class="seg" id="zoom">
+    <button data-z="100" class="on">1배</button><button data-z="200">2배</button><button data-z="300">3배</button>
+  </span>
+  <span class="seg" id="view">
+    <button data-v="all" class="on">전체</button>
+    <button data-v="0">청 시야</button>
+    <button data-v="1">홍 시야</button>
+  </span>
+</div>
+<main>
+  <div id="mapwrap"><svg id="map"></svg></div>
+  <aside>
+    <h2>선택한 칸</h2>
+    <div id="detail"><p class="empty">지도의 칸을 누르면 그 칸의 부대가 나옵니다.</p></div>
+    <h2>전투력 추이</h2>
+    <svg id="chart" preserveAspectRatio="none"></svg>
+    <h2>이번 턴</h2>
+    <div id="events" class="hint"></div>
+    <h2>범례</h2>
+    <div class="legend" id="legend"></div>
+    <p class="hint">말의 색이 진할수록 남은 전투력이 많습니다. 숫자는 그 칸의 말 개수입니다. 둥근 표식은 본부, 점선 테두리는 통신 두절입니다.<br>
+    실선: 직사 공격, 점선: 응사, 긴 점선: 포병 사격, ✕: 부대 제거.</p>
+  </aside>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const KIND = ["전차", "보병(탑승)", "브래들리", "하차 보병", "정찰", "포병", "보급", "여단본부", "대대본부", "통신중대"];
+const MARK = ["전", "보", "브", "하", "정", "포", "급", "여", "대", "통"];
+const BN = ["보병형 제병협동", "전차형 제병협동 1", "전차형 제병협동 2", "기병", "포병", "지원"];
+const SIDE = ["청", "홍"];
+const R = 6, SQ3 = Math.sqrt(3);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const W = DATA.width, L = DATA.length, frames = DATA.frames;
+let cur = 0, view = "all", timer = null, selected = null;
+
+// odd-r(뾰족 위) 좌표를 가로로 눕혀서 그림: 화면 x = 행, 화면 y = 열
+function center(c, r) {
+  const px = R * SQ3 * (c + 0.5 * (r & 1)), py = R * 1.5 * r;
+  return [py + R + 2, px + R + 2];
+}
+function hexPts(c, r) {
+  const [x, y] = center(c, r); const pts = [];
+  for (let i = 0; i < 6; i++) { const a = Math.PI / 180 * (60 * i);
+    pts.push((x + R * Math.cos(a)).toFixed(2) + "," + (y + R * Math.sin(a)).toFixed(2)); }
+  return pts.join(" ");
+}
+const svg = document.getElementById("map");
+const VW = R * 1.5 * (L - 1) + 2 * R + 4, VH = R * SQ3 * (W + 0.5) + 2 * R + 4;
+svg.setAttribute("viewBox", `0 0 ${VW} ${VH}`);
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+
+// 지형 (한 번만 그림)
+const gTerrain = el("g", {}, svg), gMarks = el("g", { "pointer-events": "none" }, svg),
+      gPieces = el("g", { "pointer-events": "none" }, svg),
+      gEvents = el("g", { "pointer-events": "none" }, svg), gSel = el("g", { "pointer-events": "none" }, svg);
+for (let r = 0; r < L; r++) for (let c = 0; c < W; c++) {
+  const m = DATA.terrain[r][c] === 1;
+  const p = el("polygon", { points: hexPts(c, r), fill: m ? "var(--mount)" : "var(--flat)",
+    stroke: "var(--grid)", "stroke-width": 0.4 }, gTerrain);
+  p.addEventListener("click", () => { selected = [c, r]; draw(); });
+}
+// 배치 구역 경계, 기지, 목표
+for (const s of [0, 1]) {
+  const [bc, br] = DATA.base[s], [bx, by] = center(bc, br);
+  el("rect", { x: bx - 6, y: by - 6, width: 12, height: 12, fill: "none",
+    stroke: s ? "var(--red)" : "var(--blue)", "stroke-width": 1.6 }, gMarks);
+  const [oc, or] = DATA.objective[s], [ox, oy] = center(oc, or);
+  el("circle", { cx: ox, cy: oy, r: 7, fill: "none", stroke: s ? "var(--red)" : "var(--blue)",
+    "stroke-width": 1.6, "stroke-dasharray": "2.5 1.5" }, gMarks);
+}
+for (const row of [DATA.deploy_depth - 0.5, L - DATA.deploy_depth - 0.5]) {
+  const x = R * 1.5 * row + R + 2;
+  el("line", { x1: x, x2: x, y1: 0, y2: VH, stroke: "var(--muted)", "stroke-width": 0.5,
+    "stroke-dasharray": "3 3" }, gMarks);
+}
+
+function visiblePieces(f) {
+  if (view === "all") return f.pieces;
+  const s = +view, seen = new Set(f.seen[s]);
+  return f.pieces.filter(p => p[1] === s || seen.has(p[0]));
+}
+function fmtTime(t) {
+  const h = t * DATA.turn_hours, d = Math.floor(h / 24), hh = Math.floor(h % 24), mm = Math.round((h % 1) * 60);
+  return `D+${d} ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+function sumPower(f, s) { return f.pieces.filter(p => p[1] === s).reduce((a, p) => a + p[6], 0); }
+
+function draw() {
+  const f = frames[cur];
+  gPieces.textContent = ""; gEvents.textContent = ""; gSel.textContent = "";
+  // 칸별로 묶기
+  const byHex = new Map();
+  for (const p of visiblePieces(f)) {
+    const k = p[3] + "," + p[4] + "," + p[1];
+    if (!byHex.has(k)) byHex.set(k, []);
+    byHex.get(k).push(p);
+  }
+  for (const [k, ps] of byHex) {
+    const [c, r, s] = k.split(",").map(Number);
+    let [x, y] = center(c, r);
+    const both = byHex.has(c + "," + r + "," + (1 - s));
+    if (both) y += s ? 2.6 : -2.6;
+    const hq = ps.find(p => p[2] >= 7);
+    const big = hq || ps.reduce((a, p) => p[6] > a[6] ? p : a, ps[0]);
+    const cut = ps.every(p => p[14] === 0);
+    const pw = ps.reduce((a, p) => a + p[6], 0), st = ps.reduce((a, p) => a + p[7], 0);
+    const frac = Math.max(0.15, Math.min(1, pw / st));
+    const col = s ? "var(--red)" : "var(--blue)";
+    const g = el("g", { opacity: (0.35 + 0.65 * frac).toFixed(2) }, gPieces);
+    const hw = both ? 4.6 : 5.6, hh = both ? 3.0 : 4.2;
+    const rattr = { x: x - hw, y: y - hh, width: 2 * hw, height: 2 * hh, rx: big[2] >= 7 ? hh : 1.2,
+      fill: cut ? "var(--panel)" : col, stroke: cut ? col : "var(--panel)", "stroke-width": cut ? 1 : 0.5 };
+    if (cut) rattr["stroke-dasharray"] = "1.5 1";
+    el("rect", rattr, g);
+    const t = el("text", { x, y: y + hh * 0.6, "text-anchor": "middle", "font-size": hh * 1.75,
+      fill: cut ? col : "#fff", "font-weight": 700 }, g);
+    t.textContent = MARK[big[2]];
+    if (ps.length > 1) {
+      el("circle", { cx: x + hw, cy: y - hh, r: 2.6, fill: "var(--panel)", stroke: col, "stroke-width": 0.6 }, g);
+      const n = el("text", { x: x + hw, y: y - hh + 1.3, "text-anchor": "middle", "font-size": 3.6, fill: col,
+        "font-weight": 700 }, g);
+      n.textContent = ps.length;
+    }
+  }
+  // 사건
+  for (const e of f.events) {
+    const [type, s, a, b] = e;
+    if (view !== "all" && type !== "lost" && s !== +view && type !== "arty") { /* 상대 행동도 보이는 범위면 표시 */ }
+    const col = s ? "var(--red)" : "var(--blue)";
+    const [x1, y1] = center(a[0], a[1]);
+    if (type === "lost") {
+      el("path", { d: `M${x1 - 3},${y1 - 3}L${x1 + 3},${y1 + 3}M${x1 + 3},${y1 - 3}L${x1 - 3},${y1 + 3}`,
+        stroke: col, "stroke-width": 1.2 }, gEvents);
+      continue;
+    }
+    if (type === "supply") continue;
+    const [x2, y2] = center(b[0], b[1]);
+    const dash = type === "arty" ? "4 2" : type === "return" ? "1.2 1.2" : null;
+    const attrs = { x1, y1, x2, y2, stroke: col, "stroke-width": type === "arty" ? 0.8 : 1, opacity: 0.85 };
+    if (dash) attrs["stroke-dasharray"] = dash;
+    el("line", attrs, gEvents);
+    if (type === "arty") el("circle", { cx: x2, cy: y2, r: 2.4, fill: "none", stroke: col, "stroke-width": 0.8 }, gEvents);
+  }
+  if (selected) el("polygon", { points: hexPts(...selected), fill: "none", stroke: "var(--accent)",
+    "stroke-width": 1.2 }, gSel);
+  // 머리말
+  const p0 = sumPower(f, 0), p1 = sumPower(f, 1);
+  document.getElementById("s-turn").textContent = f.turn;
+  document.getElementById("s-max").textContent = DATA.max_turns;
+  document.getElementById("s-time").textContent = fmtTime(f.turn);
+  document.getElementById("s-p0").textContent = Math.round(p0).toLocaleString();
+  document.getElementById("s-p1").textContent = Math.round(p1).toLocaleString();
+  document.getElementById("s-n0").textContent = f.pieces.filter(p => p[1] === 0).length;
+  document.getElementById("s-n1").textContent = f.pieces.filter(p => p[1] === 1).length;
+  document.getElementById("s-h0").textContent = `${f.hold[0]}/${DATA.hold_turns}`;
+  document.getElementById("s-h1").textContent = `${f.hold[1]}/${DATA.hold_turns}`;
+  const res = document.getElementById("s-result");
+  res.textContent = !f.done ? "" : f.winner === null ? "무승부" : `${SIDE[f.winner]} 승리 (${DATA.reason})`;
+  res.className = f.winner === 0 ? "blue" : f.winner === 1 ? "red" : "";
+  document.getElementById("slider").value = cur;
+  drawDetail(f); drawEvents(f); drawChart();
+}
+
+function drawDetail(f) {
+  const box = document.getElementById("detail");
+  if (!selected) return;
+  const [c, r] = selected;
+  const ps = visiblePieces(f).filter(p => p[3] === c && p[4] === r);
+  const terr = DATA.terrain[r][c] === 1 ? "산지" : "평지";
+  let h = `<div class="hint">칸 (${c}, ${r}) · ${terr}</div>`;
+  if (!ps.length) h += `<p class="empty">부대 없음</p>`;
+  for (const p of ps) {
+    const [pid, s, k, , , plt, pw, st, food, ammo, fuel, moved, stay, starve, conn, bn] = p;
+    const bar = (lbl, v) => v < 0 ? "" : `<span>${lbl}</span><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div><span>${Math.round(v * 100)}%</span>`;
+    h += `<div class="piece"><span class="name ${s ? "red" : "blue"}">${SIDE[s]} ${KIND[k]}</span>
+      <span class="hint"> #${pid} · ${bn >= 0 ? BN[bn] + "대대" : "여단 직할"} · ${conn ? "통신 연결" : "<b>통신 두절</b>"}${k < 7 ? " · 소대 " + plt : ""}${moved ? " · 이동함" : stay ? ` · 정지 ${stay}턴` : ""}${starve ? ` · 굶주림 ${starve}턴` : ""}</span>
+      <div class="bars">${bar("전투력", pw / st)}${bar("식량", food)}${k === 3 || k === 6 ? "" : bar("탄약", ammo)}${bar("연료", fuel)}</div></div>`;
+  }
+  box.innerHTML = h;
+}
+function drawEvents(f) {
+  const n = { direct: [0, 0], return: [0, 0], arty: [0, 0], lost: [0, 0], supply: [0, 0] };
+  for (const e of f.events) if (n[e[0]]) n[e[0]][e[1]]++;
+  const row = (lbl, k) => `${lbl} <span class="blue">${n[k][0]}</span> / <span class="red">${n[k][1]}</span>`;
+  document.getElementById("events").innerHTML =
+    [row("직사 공격", "direct"), row("응사", "return"), row("포병 사격", "arty"),
+     row("보급 전달", "supply"), row("부대 제거", "lost")].join("<br>");
+}
+// 전투력 추이 (전체 기간, 현재 위치 표시)
+const series = [0, 1].map(s => frames.map(f => sumPower(f, s)));
+const pmax = Math.max(...series[0], ...series[1], 1);
+function drawChart() {
+  const ch = document.getElementById("chart"); ch.textContent = "";
+  ch.setAttribute("viewBox", `0 0 300 90`);
+  const n = Math.max(frames.length - 1, 1);
+  for (const s of [0, 1]) {
+    const d = series[s].map((v, i) => `${i ? "L" : "M"}${(i / n * 296 + 2).toFixed(1)},${(86 - v / pmax * 80).toFixed(1)}`).join("");
+    el("path", { d, fill: "none", stroke: s ? "var(--red)" : "var(--blue)", "stroke-width": 1.6,
+      "vector-effect": "non-scaling-stroke" }, ch);
+  }
+  const x = cur / n * 296 + 2;
+  el("line", { x1: x, x2: x, y1: 2, y2: 88, stroke: "var(--muted)", "stroke-width": 1,
+    "vector-effect": "non-scaling-stroke" }, ch);
+}
+// 범례
+document.getElementById("legend").innerHTML = MARK.map((m, i) =>
+  `<span style="display:inline-grid;place-items:center;width:20px;height:15px;border-radius:3px;background:var(--blue);color:#fff;font-weight:700;font-size:11px">${m}</span><span>${KIND[i]}</span>`).join("") +
+  `<span style="width:14px;height:14px;background:var(--mount);border-radius:2px"></span><span>산지</span>
+   <span style="width:12px;height:12px;border:1.5px solid var(--blue)"></span><span>보급기지</span>
+   <span style="width:12px;height:12px;border:1.5px dashed var(--blue);border-radius:50%"></span><span>목표 지점 (그 진영 후방)</span>`;
+
+// 조작
+const slider = document.getElementById("slider");
+slider.max = frames.length - 1;
+slider.addEventListener("input", () => { cur = +slider.value; draw(); });
+const go = i => { cur = Math.max(0, Math.min(frames.length - 1, i)); draw(); };
+document.getElementById("b-first").onclick = () => go(0);
+document.getElementById("b-last").onclick = () => go(frames.length - 1);
+document.getElementById("b-prev").onclick = () => go(cur - 1);
+document.getElementById("b-next").onclick = () => go(cur + 1);
+const playBtn = document.getElementById("b-play");
+function stop() { clearInterval(timer); timer = null; playBtn.textContent = "▶ 재생"; }
+function play() {
+  if (cur >= frames.length - 1) cur = 0;
+  playBtn.textContent = "⏸ 정지";
+  timer = setInterval(() => { if (cur >= frames.length - 1) return stop(); go(cur + 1); },
+    +document.getElementById("speed").value);
+}
+playBtn.onclick = () => timer ? stop() : play();
+document.getElementById("speed").onchange = () => { if (timer) { stop(); play(); } };
+document.querySelectorAll("#view button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#view button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); view = b.dataset.v; draw();
+});
+document.querySelectorAll("#zoom button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#zoom button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); svg.style.width = b.dataset.z + "%";
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") go(cur + 1);
+  else if (e.key === "ArrowLeft") go(cur - 1);
+  else if (e.key === " ") { e.preventDefault(); timer ? stop() : play(); }
+});
+draw();
+</script>
+</body>
+</html>
