@@ -33,7 +33,7 @@ class RandomPolicy:
         self.rng = rng
 
     def template(self, rng):
-        return None  # 무작위 배치
+        return int(rng.integers(len(TEMPLATES)))  # 배치 유형은 무작위로 (보급선이 닿는 배치)
 
     def orders(self, items):
         return [RandomAgent(s, self.rng).act(g) for g, s in items]

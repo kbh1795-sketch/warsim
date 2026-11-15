@@ -1,7 +1,7 @@
 """학습 전 확인용 플레이어."""
 
 from .hexgrid import distance
-from .units import ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, INF, SIGNAL, SUPPLY
+from .units import ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, FSC, INF, MAINT, MED, SIGNAL, SUPPLY
 
 
 class RandomAgent:
@@ -29,24 +29,15 @@ class RandomAgent:
         orders = []
         own = obs["own"]
         for pc in own:
-            if pc.kind in (BDE_HQ, SIGNAL):
-                continue  # 여단본부·통신중대는 제자리
-            if pc.kind == BN_HQ:
-                mates = [o for o in own if o.bn == pc.bn and o.kind != BN_HQ]
-                if mates:  # 대대본부는 소속 중대 중 하나를 따라감
+            if pc.kind in (BDE_HQ, SIGNAL, SUPPLY, MAINT, MED):
+                continue  # 여단본부·통신중대·지원대대 중대는 제자리
+            if pc.kind in (BN_HQ, FSC):
+                mates = [o for o in own if o.bn == pc.bn and o.kind not in (BN_HQ, FSC)]
+                if mates:  # 대대본부·전방지원중대는 소속 중대 중 하나를 따라감
                     m = mates[self.rng.integers(len(mates))]
                     orders.append(("move", pc.pid, self._toward(game, pc, m.hex)))
                 continue
             near = [e for e in enemies if distance(pc.hex, e.hex) <= game.cfg.direct_fire_range]
-            if pc.kind == SUPPLY:
-                orders.append(("deliver", pc.pid))
-                low = pc.cargo_food < 0.3 * game.cfg.supply_food_cap * pc.platoons
-                if low:
-                    orders.append(("move", pc.pid, self._toward(game, pc, obs["base"])))
-                elif own:
-                    friend = own[self.rng.integers(len(own))]
-                    orders.append(("move", pc.pid, self._toward(game, pc, friend.hex)))
-                continue
             if pc.kind == ARTY:
                 inrange = [e for e in enemies if distance(pc.hex, e.hex) <= game.cfg.artillery_range]
                 if inrange and r() < 0.7:

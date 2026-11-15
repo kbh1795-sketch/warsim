@@ -106,8 +106,8 @@ input[type=range] { flex: 1 1 200px; min-width: 120px; accent-color: var(--accen
 </main>
 <script>
 const DATA = /*__DATA__*/null;
-const KIND = ["전차", "보병(탑승)", "브래들리", "하차 보병", "정찰", "포병", "보급", "여단본부", "대대본부", "통신중대"];
-const MARK = ["전", "보", "브", "하", "정", "포", "급", "여", "대", "통"];
+const KIND = ["전차", "보병(탑승)", "브래들리", "하차 보병", "정찰", "포병", "배급중대", "여단본부", "대대본부", "통신중대", "전방지원중대", "정비중대", "의무중대"];
+const MARK = ["전", "보", "브", "하", "정", "포", "급", "여", "대", "통", "지", "비", "의"];
 const BN = ["보병형 제병협동", "전차형 제병협동 1", "전차형 제병협동 2", "기병", "포병", "지원"];
 const SIDE = ["청", "홍"];
 const R = 6, SQ3 = Math.sqrt(3);
@@ -217,7 +217,7 @@ function draw() {
         stroke: col, "stroke-width": 1.2 }, gEvents);
       continue;
     }
-    if (type === "supply") continue;
+    if (type === "supply" || type === "repair") continue;
     const [x2, y2] = center(b[0], b[1]);
     const dash = type === "arty" ? "4 2" : type === "return" ? "1.2 1.2" : null;
     const attrs = { x1, y1, x2, y2, stroke: col, "stroke-width": type === "arty" ? 0.8 : 1, opacity: 0.85 };
@@ -263,12 +263,12 @@ function drawDetail(f) {
   box.innerHTML = h;
 }
 function drawEvents(f) {
-  const n = { direct: [0, 0], return: [0, 0], arty: [0, 0], lost: [0, 0], supply: [0, 0] };
+  const n = { direct: [0, 0], return: [0, 0], arty: [0, 0], lost: [0, 0], repair: [0, 0] };
   for (const e of f.events) if (n[e[0]]) n[e[0]][e[1]]++;
   const row = (lbl, k) => `${lbl} <span class="blue">${n[k][0]}</span> / <span class="red">${n[k][1]}</span>`;
   document.getElementById("events").innerHTML =
     [row("직사 공격", "direct"), row("응사", "return"), row("포병 사격", "arty"),
-     row("보급 전달", "supply"), row("부대 제거", "lost")].join("<br>");
+     row("수리 복귀", "repair"), row("부대 제거", "lost")].join("<br>");
 }
 // 전투력 추이 (전체 기간, 현재 위치 표시)
 const series = [0, 1].map(s => frames.map(f => sumPower(f, s)));

@@ -6,12 +6,18 @@
     3. 시야 계산
     4. 사격: 직사 공격, 자동 응사, 포병  -> 피해는 한꺼번에 계산 (동시)
     5. 피해 적용
-    6. 보급 전달, 기지 재적재
+    6. 보급 (자동): 기지 -> 배급중대 -> 전방지원중대 -> 대대 부대, 거리 안이면 저절로
     7. 소모: 식량, 연료 / 굶주림
-    8. 정지 턴 수 갱신
+    8. 정지 턴 수 갱신, 수리 진행
     9. 제거: 격멸(30% 미만), 굶주림
    10. 목표 점유, 승리 판정
    11. 통신 연결 다시 계산 (다음 턴 명령·정보에 적용)
+
+보급: 명령이 필요 없다. 기지(여단 바깥 상급 지원부대)가 배급중대를 늘 채우고,
+      배급중대는 8칸 안의 전방지원중대와 여단 직할·지원대대 말을, 전방지원중대는 8칸 안의
+      자기 대대 말을 채운다. 신경망은 이 말들을 어디에 둘지만 정한다.
+피해: 잃은 전투력의 50% 완파(영구), 30% 소파(24시간), 20% 중파(72시간).
+      소파는 자기 전방지원중대(없으면 정비중대) 8칸 안, 중파는 정비중대와 이어져야 수리된다.
 
 통신: 말은 자기 대대본부와 8칸 안, 대대본부는 여단본부나 여단 통신중대와 35칸 안이고
       사이에 산지가 가로막지 않아야 연결된다. 끊긴 말은 새 명령을 못 받고 마지막 명령
@@ -28,7 +34,6 @@
     ("merge", pid, other_pid)          같은 칸, 같은 종류
     ("dismount", pid)                  보병 -> 브래들리 + 하차 보병
     ("mount", bradley_pid, dismount_pid)
-    ("deliver", supply_pid)            같은 칸 아군 전체에 보급
 """
 
 import numpy as np
@@ -36,7 +41,8 @@ import numpy as np
 from .config import Config
 from .hexgrid import HexMap, distance
 from .units import (ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, DISMOUNT_SHARE, INF,
-                    KIND_SPECS, RECON, SIGNAL, SUPPLY, TANK, Piece)
+                    FSC, KIND_SPECS, MAINT, MED, NO_SPLIT, RECON, SHARED, SIGNAL,
+                    SUPPLY, SUPPORT_KINDS, TANK, Piece)
 
 # 미군 ABCT (2016 이후) 대대별 중대 구성 [근거] battleorder.org, MCoE SM 3-90
 BATTALIONS = [
@@ -45,8 +51,10 @@ BATTALIONS = [
     ("전차형 제병협동 2", [TANK, TANK, INF]),
     ("기병", [RECON, RECON, RECON]),
     ("포병", [ARTY, ARTY, ARTY]),
-    ("지원", [SUPPLY]),
+    ("지원", [SUPPLY, MAINT, MED]),   # 여단지원대대: 배급·정비·의무중대 (본부중대 = 대대본부)
 ]
+SUPPORT_BN = 5
+COMPANY_PLATOONS = (TANK, INF, RECON, SUPPLY)  # 소대 3개로 시작하는 중대
 CONTINUING = ("move", "attack", "fire")  # 통신이 끊겨도 이어가는 명령
 
 
@@ -80,7 +88,10 @@ class Game:
             for bn, (_, kinds) in enumerate(BATTALIONS):
                 self._new_piece(side, BN_HQ, None, 1, bn)
                 for kind in kinds:
-                    self._new_piece(side, kind, None, 1 if kind == ARTY else p, bn)
+                    self._new_piece(side, kind, None, p if kind in COMPANY_PLATOONS else 1, bn)
+                if bn != SUPPORT_BN:
+                    self._new_piece(side, FSC, None, 1, bn)  # 전방지원중대
+            self._set_cargo(side)
         self.start_total = [sum(q.power for q in self.side_pieces(s)) for s in (0, 1)]
         self.last_order = {}
         self.conn = [set(), set()]
@@ -94,13 +105,26 @@ class Game:
         pc.food = pc.food_cap(self.cfg)
         pc.ammo = pc.ammo_cap() if s.can_attack or kind == ARTY else 0.0
         pc.fuel = pc.fuel_cap()
-        if kind == SUPPLY:
-            pc.cargo_food = self.cfg.supply_food_cap * platoons
-            pc.cargo_ammo = self.cfg.supply_ammo_cap * platoons
-            pc.cargo_fuel = self.cfg.supply_fuel_cap * platoons
         self.pieces[pc.pid] = pc
         self._next_id += 1
         return pc
+
+    def _need(self, pc):
+        """한 번 가득 채우는 데 드는 물자 (1일분)."""
+        return (pc.food_cap(self.cfg), pc.ammo_cap() if pc.armed() else 0.0, pc.fuel_cap())
+
+    def _set_cargo(self, side):
+        """전방지원중대는 자기 대대 1일분, 배급중대는 여단 전체 1일분을 싣는다."""
+        own = self.side_pieces(side)
+        for f in own:
+            if f.kind == FSC:
+                need = [self._need(q) for q in own if q.bn == f.bn]
+            elif f.kind == SUPPLY:
+                need = [self._need(q) for q in own]
+            else:
+                continue
+            f.cap_food, f.cap_ammo, f.cap_fuel = (sum(x[i] for x in need) for i in range(3))
+            f.fill_cargo()
 
     def deploy_zone(self, side):
         c = self.cfg
@@ -191,7 +215,7 @@ class Game:
         c = self.cfg
         if pc.kind == RECON:
             return c.vision_recon
-        if pc.kind in (ARTY, SUPPLY):
+        if pc.kind == ARTY or pc.kind in SUPPORT_KINDS:
             return c.vision_rear
         return c.vision_default
 
@@ -277,8 +301,10 @@ class Game:
         seen = [self.visible_enemies(0), self.visible_enemies(1)]
         self._combat(orders, seen)
         for side in (0, 1):
-            self._deliver(side, orders[side])
+            self._resupply(side)
         self._consume()
+        for side in (0, 1):
+            self._repair(side)
         self._remove()
         self._check_victory()
         self._update_comm()
@@ -303,7 +329,7 @@ class Game:
             if kind == "merge":
                 a, b = self._own(side, o[1]), self._own(side, o[2])
                 if (a and b and a is not b and a.kind == b.kind and a.hex == b.hex
-                        and a.kind not in (ARTY, BDE_HQ, BN_HQ, SIGNAL) and a.bn == b.bn):
+                        and a.kind not in NO_SPLIT and a.bn == b.bn):
                     self._absorb(a, b)
                     self._log(side, o)
             elif kind == "mount":
@@ -316,7 +342,7 @@ class Game:
             elif kind == "split":
                 a = self._own(side, o[1])
                 k = int(o[2]) if len(o) > 2 else 0
-                if a and a.kind not in (ARTY, BDE_HQ, BN_HQ, SIGNAL) and 1 <= k < a.platoons:
+                if a and a.kind not in NO_SPLIT and 1 <= k < a.platoons:
                     new = self._new_piece(side, a.kind, a.hex, k, a.bn)
                     share = a.scale(k / a.platoons)
                     for key, v in share.items():
@@ -346,9 +372,9 @@ class Game:
         return rest
 
     def _absorb(self, a, b):
-        for key in ("power", "start_power", "food", "ammo", "fuel",
-                    "cargo_food", "cargo_ammo", "cargo_fuel"):
+        for key in SHARED:
             setattr(a, key, getattr(a, key) + getattr(b, key))
+        a.repairs += b.repairs
         a.platoons += b.platoons
         a.stationary = min(a.stationary, b.stationary)
         a.starving = max(a.starving, b.starving)
@@ -460,46 +486,68 @@ class Game:
                 continue
             frac = loss / t.power if t.power > 0 else 1.0
             t.power -= loss
-            if t.kind == SUPPLY:
+            # 완파 / 소파 / 중파 로 나눈다. 소파·중파는 수리되면 돌아온다.
+            light = loss * c.dmg_light
+            heavy = loss * max(0.0, 1.0 - c.dmg_destroyed - c.dmg_light)
+            if light > 0:
+                t.repairs.append([light, "소", c.repair_light_turns])
+            if heavy > 0:
+                t.repairs.append([heavy, "중", c.repair_heavy_turns])
+            if t.kind in (SUPPLY, FSC):
                 t.cargo_food *= 1 - frac
                 t.cargo_ammo *= 1 - frac
                 t.cargo_fuel *= 1 - frac
 
-    # 6. 보급
-    def _deliver(self, side, orders):
-        for o in orders:
-            if o[0] != "deliver":
+    # 6. 보급 (자동)
+    def _near(self, pc, cands):
+        """pc 에서 보급 거리 안에 있는 후보 중 가장 가까운 것."""
+        r = self.cfg.supply_range
+        best = [q for q in cands if q is not pc and distance(pc.hex, q.hex) <= r]
+        return min(best, key=lambda q: distance(pc.hex, q.hex)) if best else None
+
+    @staticmethod
+    def _top_up(src, dst, food, ammo, fuel):
+        """src 의 적재 물자로 dst 를 (food, ammo, fuel) 목표까지 채운다. 실제 준 양을 돌려준다."""
+        g = [0.0, 0.0, 0.0]
+        for i, (have, want, cargo) in enumerate((("food", food, "cargo_food"),
+                                                 ("ammo", ammo, "cargo_ammo"),
+                                                 ("fuel", fuel, "cargo_fuel"))):
+            give = min(max(0.0, want - getattr(dst, have)), getattr(src, cargo))
+            setattr(dst, have, getattr(dst, have) + give)
+            setattr(src, cargo, getattr(src, cargo) - give)
+            g[i] = give
+        return g
+
+    def _resupply(self, side):
+        own = self.side_pieces(side)
+        dist = [p for p in own if p.kind == SUPPLY]
+        fsc = {p.bn: p for p in own if p.kind == FSC}
+        # 기지(상급 지원부대)가 배급중대를 늘 채운다
+        for d in dist:
+            d.fill_cargo()
+        # 배급중대 -> 전방지원중대 적재 보충
+        for f in fsc.values():
+            d = self._near(f, dist)
+            if d is not None:
+                for k in ("food", "ammo", "fuel"):
+                    have, cap = "cargo_" + k, "cap_" + k
+                    give = min(max(0.0, getattr(f, cap) - getattr(f, have)), getattr(d, have))
+                    setattr(f, have, getattr(f, have) + give)
+                    setattr(d, have, getattr(d, have) - give)
+        # 말 -> 자기 물자: 자기 대대 전방지원중대, 없으면 배급중대 (거리 안)
+        for pc in own:
+            if pc.kind in (SUPPLY, FSC):
+                src = pc          # 실은 물자로 자기도 먹는다
+            else:
+                f = fsc.get(pc.bn)
+                src = f if f is not None and distance(pc.hex, f.hex) <= self.cfg.supply_range \
+                    else self._near(pc, dist)
+            if src is None:
                 continue
-            s = self._own(side, o[1])
-            if s is None or s.kind != SUPPLY:
-                continue
-            for pc in self.side_pieces(side):
-                if pc.hex != s.hex or pc.kind == SUPPLY:
-                    continue
-                need = pc.food_cap(self.cfg) - pc.food
-                give = min(need, s.cargo_food)
-                pc.food += give
-                s.cargo_food -= give
-                if pc.food > 0:
-                    pc.starving = 0
-                if pc.spec.can_attack or pc.kind == ARTY:
-                    give = min(pc.ammo_cap() - pc.ammo, s.cargo_ammo)
-                    pc.ammo += give
-                    s.cargo_ammo -= give
-                give = min(pc.fuel_cap() - pc.fuel, s.cargo_fuel)
-                pc.fuel += give
-                s.cargo_fuel -= give
-            self._log(side, o)
-            self.events.append(("supply", side, s.hex, s.hex))
-        # 기지에 있는 보급부대는 다시 가득 채움
-        c = self.cfg
-        for s in self.side_pieces(side):
-            if s.kind == SUPPLY and s.hex == self.base[side]:
-                s.cargo_food = c.supply_food_cap * s.platoons
-                s.cargo_ammo = c.supply_ammo_cap * s.platoons
-                s.cargo_fuel = c.supply_fuel_cap * s.platoons
-                s.food = s.food_cap(c)
-                s.fuel = s.fuel_cap()
+            food, ammo, fuel = self._need(pc)
+            self._top_up(src, pc, food, ammo, fuel)
+            if pc.food > 0:
+                pc.starving = 0
 
     # 7~8. 소모
     def _consume(self):
@@ -512,6 +560,32 @@ class Game:
             gph = sp.gph_move if pc.moved else sp.gph_idle
             pc.fuel = max(0.0, pc.fuel - sp.vehicles * pc.platoons * gph * h)
             pc.stationary = 0 if pc.moved else pc.stationary + 1
+
+    # 8. 수리
+    def _repair(self, side):
+        """소파: 자기 대대 전방지원중대(없으면 정비중대) 8칸 안이면 진행.
+        중파: 정비중대가 이 말이나 이 말의 전방지원중대 8칸 안이면 진행 (후송 수리)."""
+        r = self.cfg.supply_range
+        own = self.side_pieces(side)
+        fsc = {p.bn: p for p in own if p.kind == FSC}
+        maint = [p for p in own if p.kind == MAINT]
+        for pc in own:
+            if not pc.repairs:
+                continue
+            f = fsc.get(pc.bn)
+            f = f if f is not None and f is not pc and distance(pc.hex, f.hex) <= r else None
+            m = self._near(pc, maint) or (self._near(f, maint) if f is not None else None)
+            ok = {"소": f is not None or m is not None, "중": m is not None}
+            keep = []
+            for item in pc.repairs:
+                if ok[item[1]]:
+                    item[2] -= 1
+                if item[2] <= 0:
+                    pc.power = min(pc.start_power, pc.power + item[0])
+                    self.events.append(("repair", side, pc.hex, pc.hex))
+                else:
+                    keep.append(item)
+            pc.repairs = keep
 
     # 9. 제거
     def _remove(self):

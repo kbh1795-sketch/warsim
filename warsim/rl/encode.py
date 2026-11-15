@@ -11,7 +11,7 @@
     fire    (P, KF, F_FIRE) 포병마다 사격 칸 후보
 
 행동 (내 말 하나당)
-    type  9가지: 대기, 이동, 공격, 포병사격, 분리, 합류, 하차, 탑승, 보급
+    type  9가지: 대기, 이동, 공격, 포병사격, 분리, 합류, 하차, 탑승, (보급: 자동이 되어 늘 막힘)
     move_dir 6, move_dist 4 (1, 3, 6, 12칸 쪽으로)
     atk  KA 중 하나, fire KF 중 하나
 """
@@ -19,18 +19,19 @@
 import numpy as np
 
 from ..hexgrid import _CUBE_DIRS, distance, to_cube
-from ..units import (ARTY, BN_HQ, BRADLEY, DISMOUNT, HQ_KINDS, INF, KIND_SPECS, SUPPLY)
+from ..units import (ARTY, BN_HQ, BRADLEY, CARGO_KINDS, DISMOUNT, INF, KIND_NAMES,
+                     KIND_SPECS, NO_SPLIT)
 
-N_KIND = 10
+N_KIND = len(KIND_NAMES)
 N_BN = 7        # 대대 6 + 여단 직할
-P_MAX = 64      # 한 진영 최대 말 수 (소대 단위 최대 약 54)
+P_MAX = 80      # 한 진영 최대 말 수 (시작 31, 소대 단위로 다 쪼개면 약 70)
 KA = 8          # 직사 표적 후보 수
 KF = 16         # 포병 사격 칸 후보 수
 DISTS = (1, 3, 6, 12)
 HOLD, MOVE, ATTACK, FIRE, SPLIT, MERGE, DISMOUNT_A, MOUNT, DELIVER = range(9)
 N_TYPE = 9
 C_PLANES = 1 + 2 * N_KIND + 2 + 4
-F_TOK = N_KIND + N_BN + 14
+F_TOK = N_KIND + N_BN + 16
 F_GLB = 10
 F_ATK = 6 + N_KIND
 F_FIRE = 4 + N_KIND
@@ -125,6 +126,8 @@ def encode(game, side):
         ok = p.pid in conn
         ctrl_mask[i] = ok
         t[k + 13] = float(ok)
+        t[k + 14] = p.cargo_food / p.cap_food if p.kind in CARGO_KINDS and p.cap_food else 0.0
+        t[k + 15] = sum(x[0] for x in p.repairs) / max(p.start_power, 1e-9)  # 수리 대기 비율
         t[k:k + 13] = (c / W, r / L, p.platoons / 3.0, p.power / max(p.start_power, 1e-9),
                        p.power / POWER_SCALE, p.food / max(p.food_cap(cfg), 1e-9),
                        p.ammo / max(p.ammo_cap(), 1e-9) if p.ammo_cap() else 0.0,
@@ -171,10 +174,10 @@ def encode(game, side):
                 type_mask[i, FIRE] = True
         # 분리 / 합류 / 하차 / 탑승 / 보급
         mates = [q for q in by_hex[p.hex] if q.pid != p.pid]
-        if p.kind != ARTY and p.kind not in HQ_KINDS and p.platoons > 1:
+        if p.kind not in NO_SPLIT and p.platoons > 1:
             type_mask[i, SPLIT] = True
-        same = [q for q in mates if q.kind == p.kind and q.bn == p.bn and p.kind != ARTY
-                and p.kind not in HQ_KINDS and q.pid in conn]
+        same = [q for q in mates if q.kind == p.kind and q.bn == p.bn
+                and p.kind not in NO_SPLIT and q.pid in conn]
         if same:
             type_mask[i, MERGE] = True
             merge_with[i] = same[0].pid
@@ -186,8 +189,6 @@ def encode(game, side):
             if dm:
                 type_mask[i, MOUNT] = True
                 mount_with[i] = dm[0].pid
-        if p.kind == SUPPLY and any(q.kind != SUPPLY for q in mates):
-            type_mask[i, DELIVER] = True
 
     own_pw = sum(p.power for p in own)
     en_pw = sum(p.power for p in enemies)
@@ -258,6 +259,4 @@ def decode(game, side, enc, act):
             orders.append(("dismount", pid))
         elif t == MOUNT and enc.mount_with[i] >= 0:
             orders.append(("mount", pid, int(enc.mount_with[i])))
-        elif t == DELIVER:
-            orders.append(("deliver", pid))
     return orders

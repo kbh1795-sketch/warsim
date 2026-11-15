@@ -4,7 +4,8 @@ import pytest
 from warsim import Config, Game
 from warsim.hexgrid import FLAT, MOUNTAIN, HexMap, distance
 from warsim.hexgrid import line
-from warsim.units import ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, INF, SIGNAL, SUPPLY, TANK
+from warsim.units import (ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, FSC, INF, MAINT, SIGNAL,
+                          SUPPLY, SUPPORT_KINDS, TANK)
 
 
 def flat_game(comm=False, **kw):
@@ -166,6 +167,9 @@ def test_no_ammo_no_damage():
 # ---------------- 보급 ----------------
 def test_starvation_removes_after_two_days():
     g = flat_game()
+    for p in list(g.pieces.values()):
+        if p.kind in SUPPORT_KINDS:   # 보급이 끊긴 상황
+            del g.pieces[p.pid]
     a = first(g, 0, TANK)
     a.food = 0
     for _ in range(95):
@@ -186,23 +190,89 @@ def test_no_fuel_no_move_but_can_fire():
     assert g._eff_power(a) > 0
 
 
-def test_supply_delivery_same_hex():
+def supply_line(g, side=0):
+    """전차 1개 중대, 그 대대의 전방지원중대, 배급중대, 정비중대를 한 줄로 세운다 (각 6칸 간격)."""
+    a = first(g, side, TANK)
+    f = next(p for p in g.side_pieces(side) if p.kind == FSC and p.bn == a.bn)
+    d, m = first(g, side, SUPPLY), first(g, side, MAINT)
+    put(g, a.pid, (10, 40)); put(g, f.pid, (10, 34)); put(g, d.pid, (10, 28)); put(g, m.pid, (10, 30))
+    return a, f, d, m
+
+
+def test_auto_resupply_chain_keeps_unit_fed():
+    """공격받지 않으면 굶지 않는다: 부대 1일분이 다 떨어질 시간이 지나도 배가 차 있다."""
     g = flat_game()
-    a, s = first(g, 0, TANK), first(g, 0, SUPPLY)
-    put(g, s.pid, a.hex)
+    a, f, d, m = supply_line(g)
+    for _ in range(200):
+        g.step([], [])
+    assert a.pid in g.pieces and a.starving == 0 and a.food > 0
+    assert a.fuel == pytest.approx(a.fuel_cap(), rel=0.01)
+
+
+def test_resupply_needs_range():
+    g = flat_game()
+    a, f, d, m = supply_line(g)
+    put(g, f.pid, (10, 40 - g.cfg.supply_range - 1))   # 전방지원중대가 너무 멀다
     a.food = 0.0
-    a.fuel = 0.0
-    g.step([("deliver", s.pid)], [])
-    assert a.food > 0 and a.fuel > 0
-
-
-def test_supply_refills_at_base():
-    g = flat_game()
-    s = first(g, 0, SUPPLY)
-    s.cargo_food = 0
-    put(g, s.pid, g.base[0])
     g.step([], [])
-    assert s.cargo_food == pytest.approx(g.cfg.supply_food_cap * s.platoons)
+    assert a.starving == 1
+
+
+def test_fsc_refilled_by_distribution_company():
+    g = flat_game()
+    a, f, d, m = supply_line(g)
+    f.cargo_food = 0.0
+    g.step([], [])
+    assert f.cargo_food > 0.5 * f.cap_food
+    put(g, d.pid, (10, 34 - g.cfg.supply_range - 1))  # 배급중대가 멀면 못 채운다
+    f.cargo_food = 0.0
+    g.step([], [])
+    assert f.cargo_food == pytest.approx(0.0, abs=1e-9)
+
+
+def test_light_repair_needs_fsc_and_takes_a_day():
+    g = flat_game()
+    a, f, d, m = supply_line(g)
+    put(g, m.pid, (0, 0))           # 정비중대는 멀리
+    start = a.power
+    a.power -= 30.0
+    a.repairs.append([30.0, "소", g.cfg.repair_light_turns])
+    for _ in range(g.cfg.repair_light_turns - 1):
+        g.step([], [])
+    assert a.power == pytest.approx(start - 30.0)
+    g.step([], [])
+    assert a.power == pytest.approx(start)
+
+
+def test_heavy_repair_needs_maintenance_company():
+    g = flat_game()
+    a, f, d, m = supply_line(g)
+    put(g, m.pid, (0, 0))           # 정비중대가 멀면 중파는 멈춘다
+    a.power -= 30.0
+    a.repairs.append([30.0, "중", 2])
+    for _ in range(5):
+        g.step([], [])
+    assert a.repairs and a.repairs[0][2] == 2
+    put(g, m.pid, (10, 30))         # 전방지원중대(10,34) 8칸 안 -> 후송 수리 진행
+    g.step([], [])
+    g.step([], [])
+    assert not a.repairs
+
+
+def test_combat_damage_creates_repairs():
+    g = flat_game()
+    a = first(g, 0, TANK)
+    e = first(g, 1, TANK)
+    clear_others(g, {a.pid, e.pid, first(g, 0, BDE_HQ).pid, first(g, 1, BDE_HQ).pid})
+    g.start_total = [1.0, 1.0]   # 말을 지웠으니 '전체 전투력 30%' 패배가 바로 나지 않게
+    put(g, a.pid, (10, 50)); put(g, e.pid, (10, 51))
+    for _ in range(20):
+        if a.pid not in g.pieces or e.pid not in g.pieces or e.repairs:
+            break
+        g.step([("attack", a.pid, e.pid)], [])
+    lost = e.start_power - e.power
+    assert e.pid in g.pieces and lost > 0
+    assert sum(x[0] for x in e.repairs) == pytest.approx(lost * (1 - g.cfg.dmg_destroyed))
 
 
 # ---------------- 승리 ----------------

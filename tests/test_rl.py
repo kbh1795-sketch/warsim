@@ -3,7 +3,7 @@ import torch
 
 from warsim import Config, Game
 from warsim.rl.deploy import DeploymentBandit, placement
-from warsim.rl.encode import MOVE, decode, encode, mirror, stack
+from warsim.rl.encode import P_MAX, MOVE, decode, encode, mirror, stack
 from warsim.rl.model import Net, to_torch
 from warsim.rl.policy import NetPolicy, RandomPolicy, match
 
@@ -51,7 +51,7 @@ def test_net_act_shapes_and_masks():
     net = Net()
     o = to_torch(stack([encode(g, 0), encode(g, 1)]))
     a, lp, v = net.act(o)
-    assert lp.shape == (2, 64) and v.shape == (2,)
+    assert lp.shape == (2, P_MAX) and v.shape == (2,)
     assert (v.abs() <= 1).all()
     tm = o["type_mask"]
     chosen = tm.gather(-1, a["type"].unsqueeze(-1)).squeeze(-1)

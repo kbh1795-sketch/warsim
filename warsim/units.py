@@ -4,19 +4,23 @@
     전차 94, 브래들리 71, 재블린 73, 개인화기 4, 포병 99
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-TANK, INF, BRADLEY, DISMOUNT, RECON, ARTY, SUPPLY, BDE_HQ, BN_HQ, SIGNAL = range(10)
+TANK, INF, BRADLEY, DISMOUNT, RECON, ARTY, SUPPLY, BDE_HQ, BN_HQ, SIGNAL, FSC, MAINT, MED \
+    = range(13)
 KIND_NAMES = ["tank", "inf", "bradley", "dismount", "recon", "arty", "supply",
-              "bde_hq", "bn_hq", "signal"]
+              "bde_hq", "bn_hq", "signal", "fsc", "maint", "med"]
 HQ_KINDS = (BDE_HQ, BN_HQ, SIGNAL)
+# SUPPLY = 여단지원대대 배급중대, FSC = 전방지원중대(대대마다), MAINT = 정비중대, MED = 의무중대
+CARGO_KINDS = (SUPPLY, FSC)              # 물자를 싣고 다니는 말
+NO_SPLIT = (ARTY, BDE_HQ, BN_HQ, SIGNAL, FSC, MAINT, MED)
 
 # 전차중대: M1 14대 x 94 x 1.34 = 1763.6 -> 소대 587.9                     [근거]
 # 보병중대: 브래들리 14 x 71 = 994, 재블린 9 x 73 + 개인화기 134 x 4 = 1193  [근거]
 #           -> 소대: 차량 331.3 + 하차 397.7 = 729.0
 # 정찰중대: M3 12대 가정 x 71 = 852 -> 소대 284                           [개념: 차량 수]
 # 포병포대: M109A7 6문 x 99 = 594                                         [근거]
-# 보급소대: 자체 방호력 30                                                [개념]
+# 보급소대·전방지원중대·정비중대·의무중대: 자체 방호력 30                [개념]
 # 본부 (MCoE SM 3-90, 2013 장비표)                                       [근거]
 #   여단본부: M2A3 2 x 71 + 지휘장갑차(M1068, 장갑수송차 가중치 30) 3 x 30 = 232
 #   대대본부(제병협동대대 본부중대): M1A2 1 x 94 x 1.34 + M2A3 1 x 71
@@ -61,7 +65,15 @@ KIND_SPECS = {
     BN_HQ: KindSpec(_BN_HQ, 30, 11, 175, 18, 1.4, maneuver=False, entrench=False),
     # 험비: 25갤런, 이동 4gph, 대기 1gph [개념]
     SIGNAL: KindSpec(30, 10, 20, 25, 4, 1, can_attack=False, maneuver=False, entrench=False),
+    # 지원 중대: 트럭 8대 (보급소대 값과 같게) [개념]
+    FSC: KindSpec(30, 10, 8, 155, 8, 1, can_attack=False, maneuver=False, entrench=False),
+    MAINT: KindSpec(30, 10, 8, 155, 8, 1, can_attack=False, maneuver=False, entrench=False),
+    MED: KindSpec(30, 10, 8, 155, 8, 1, can_attack=False, maneuver=False, entrench=False),
 }
+SUPPORT_KINDS = (SUPPLY, FSC, MAINT, MED)
+
+SHARED = ("power", "start_power", "food", "ammo", "fuel", "cargo_food", "cargo_ammo",
+          "cargo_fuel", "cap_food", "cap_ammo", "cap_fuel")  # 분리 시 나누고 합류 시 더하는 값
 
 DISMOUNT_SHARE = _DISMOUNT_PLT / (_IFV_PLT + _DISMOUNT_PLT)
 
@@ -81,10 +93,14 @@ class Piece:
     cargo_food: float = 0.0   # 보급부대 적재
     cargo_ammo: float = 0.0
     cargo_fuel: float = 0.0
+    cap_food: float = 0.0     # 적재 한도 (배급중대·전방지원중대)
+    cap_ammo: float = 0.0
+    cap_fuel: float = 0.0
     stationary: int = 0       # 연속 정지 턴 수
     starving: int = 0         # 식량 바닥 후 경과 턴 수
     moved: bool = False       # 이번 턴 이동 여부
     bn: int = -1              # 소속 대대 번호 (-1: 여단 직할)
+    repairs: list = field(default_factory=list)  # 수리 대기 [전투력, "소"|"중", 남은 턴]
 
     @property
     def spec(self):
@@ -96,14 +112,19 @@ class Piece:
     def ammo_cap(self):
         return float(self.platoons)
 
+    def armed(self):
+        return self.spec.can_attack or self.kind == ARTY
+
+    def fill_cargo(self):
+        self.cargo_food, self.cargo_ammo, self.cargo_fuel = self.cap_food, self.cap_ammo, self.cap_fuel
+
     def fuel_cap(self):
         return self.spec.vehicles * self.platoons * self.spec.fuel_cap
 
     def scale(self, frac):
         """전투력·물자를 비율대로 나눈 몫을 돌려주고, 자신은 나머지를 갖는다."""
         out = {}
-        for k in ("power", "start_power", "food", "ammo", "fuel",
-                  "cargo_food", "cargo_ammo", "cargo_fuel"):
+        for k in SHARED:
             v = getattr(self, k)
             out[k] = v * frac
             setattr(self, k, v - out[k])

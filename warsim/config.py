@@ -48,13 +48,20 @@ class Config:
     dismount_mountain_mult: float = 1.0  # [개념] 하차 보병 산지 추가 배수 (민감도 분석)
     breakpoint: float = 0.3              # [근거] C-WAM: 남은 전투력 30% 미만이면 제거
 
-    # ---------------- 보급 ----------------
-    food_start_days: float = 3.0         # [개념]
+    # ---------------- 보급 (자동) ----------------
+    # 보급 3일분 분담 [근거] army.mil "optimal employment of the FSC": 기동대대 1일차,
+    #   전방지원중대 2일차, 여단지원대대 3일차. 기지(여단 바깥 상급 지원부대)는 무한.
+    food_start_days: float = 1.0         # [근거] 부대 휴대 1일분 (탄약 기본휴대량·연료 가득도 1회분)
     starve_turns: int = 96               # [개념] 식량 바닥 후 2일(96턴)에 걸쳐 0으로
     ammo_per_fire: float = 0.1           # [개념] 한 턴 사격에 기본휴대량의 10%
-    supply_food_cap: float = 20.0        # [개념] 보급소대 1개 적재: 소대-일
-    supply_ammo_cap: float = 10.0        # [개념] 보급소대 1개 적재: 소대 기본휴대량
-    supply_fuel_cap: float = 20000.0     # [개념] 보급소대 1개 적재: 갤런
+    supply_range: int = 8                # [근거] 전투 보급지원 지휘소가 야전 보급 거점보다 5~6km 앞
+                                         #   (army.mil field trains) -> 여유를 두고 8칸
+
+    # ---------------- 피해·수리 ----------------
+    dmg_destroyed: float = 0.5           # [근거] 이스라엘 1973: 피해 전차 840대 중 약 절반 복귀
+    dmg_light: float = 0.3               # [개념] 소파 비율 (나머지 0.2 = 중파)
+    repair_light_turns: int = 48         # [개념] 소파 24시간 (LMI 1991: 80% 를 24시간 안에 복귀)
+    repair_heavy_turns: int = 144        # [개념] 중파 72시간
 
     # ---------------- 통신 (FM 11-32 SINCGARS) ----------------
     comm_unit_range: int = 8             # [근거] 무전기 고출력 8km: 중대·소대 <-> 자기 대대본부
@@ -69,9 +76,10 @@ class Config:
     n_inf_companies: int = 4             # [근거]
     n_recon_companies: int = 3           # [근거]
     n_batteries: int = 3                 # [근거]
-    n_supply_companies: int = 1          # [개념]
+    n_supply_companies: int = 1          # [근거] 여단지원대대 배급중대 1
     # 대대: 보병형 제병협동(보병2·전차1), 전차형 제병협동 x2(전차2·보병1), 기병(정찰3),
-    #       포병(포대3), 지원(보급). 각 대대본부 1, 여단본부 1, 여단 통신중대 1
+    #       포병(포대3), 지원(배급중대·정비중대·의무중대). 지원대대 외 대대마다 전방지원중대 1.
+    #       각 대대본부 1, 여단본부 1, 여단 통신중대 1
     #       [근거] battleorder.org ABCT 2016, MCoE SM 3-90
     platoons_per_company: int = 3        # [근거] SM 3-90
 
