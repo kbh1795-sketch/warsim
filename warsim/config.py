@@ -14,9 +14,14 @@ class Config:
     # ---------------- 지도 ----------------
     hex_km: float = 1.0                  # [근거] ST 100-3 전차중대 거점 폭 1,000m
     width: int = 30                      # [개념] 칸 수 (좌우)
-    length: int = 100                    # [개념] 칸 수 (앞뒤). 양측 배치 구역 사이가 포병 사거리보다 멀도록
+    length: int = 50                     # [개념] 칸 수 (앞뒤). 배치 구역 사이 30km (포병 사거리 22km 보다 조금 멂)
     deploy_depth: int = 10               # [개념] 각자 배치 구역 깊이 (칸)
     mountain_fraction: float = 0.3       # [개념] 산지 비율
+    river_crossings: int = 2             # [개념] 지도 한가운데 가로지르는 강의 도하 지점 쌍 (점대칭이라 4곳)
+                                         #   0 이면 강 없음
+    mine_fraction: float = 0.05          # [개념] 배치 구역과 강 사이 평지 중 지뢰지대 비율
+    mine_loss: float = 0.5               # [근거] FM 20-32: 교란(disrupt) 지뢰지대는 마주칠 확률 약 50% 로 설계
+                                         #   -> 지뢰지대에 들어간 말은 전투력 50% 피해 (완파·소파·중파로 나뉨)
     objective_depth: int = 5             # [개념] 목표 지점: 자기 뒤쪽 끝에서 몇 칸 앞
     objective_hold_turns: int = 48       # [개념] 목표 점유 유지 시간 (48턴 = 24시간)
 

@@ -19,6 +19,7 @@
 import numpy as np
 
 from ..hexgrid import _CUBE_DIRS, distance, to_cube
+from ..hexgrid import MINE, MOUNTAIN, RIVER
 from ..units import (ARTY, BN_HQ, BRADLEY, CARGO_KINDS, DISMOUNT, INF, KIND_NAMES,
                      KIND_SPECS, NO_SPLIT)
 
@@ -30,7 +31,7 @@ KF = 16         # 포병 사격 칸 후보 수
 DISTS = (1, 3, 6, 12)
 HOLD, MOVE, ATTACK, FIRE, SPLIT, MERGE, DISMOUNT_A, MOUNT, DELIVER = range(9)
 N_TYPE = 9
-C_PLANES = 1 + 2 * N_KIND + 2 + 4
+C_PLANES = 1 + 2 * N_KIND + 2 + 4 + 2   # 마지막 2장: 강(지나갈 수 없음), 지뢰지대
 F_TOK = N_KIND + N_BN + 16
 F_GLB = 10
 F_ATK = 6 + N_KIND
@@ -68,7 +69,9 @@ def encode(game, side):
     e = Encoded()
     planes = np.zeros((C_PLANES, L, W), dtype=np.float32)
     terr = game.map.terrain if side == 0 else game.map.terrain[::-1, ::-1]
-    planes[0] = terr
+    planes[0] = terr == MOUNTAIN
+    planes[C_PLANES - 2] = terr == RIVER
+    planes[C_PLANES - 1] = terr == MINE
     K = N_KIND
     for p in own:
         c, r = mirror(side, p.hex, cfg)

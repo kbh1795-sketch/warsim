@@ -4,6 +4,7 @@ import pytest
 from warsim import Config, Game
 from warsim.hexgrid import FLAT, MOUNTAIN, HexMap, distance
 from warsim.hexgrid import line
+from warsim.hexgrid import CROSSING, MINE, RIVER
 from warsim.units import (ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, FSC, INF, MAINT, SIGNAL,
                           SUPPLY, SUPPORT_KINDS, TANK)
 
@@ -13,6 +14,8 @@ def flat_game(comm=False, **kw):
     if not comm:
         kw.setdefault("comm_unit_range", 999)
         kw.setdefault("comm_bn_range", 999)
+    kw.setdefault("river_crossings", 0)
+    kw.setdefault("mine_fraction", 0.0)
     g = Game(Config(mountain_fraction=0.0, **kw), rng=np.random.default_rng(0))
     g.deploy(0)
     g.deploy(1)
@@ -265,7 +268,7 @@ def test_combat_damage_creates_repairs():
     e = first(g, 1, TANK)
     clear_others(g, {a.pid, e.pid, first(g, 0, BDE_HQ).pid, first(g, 1, BDE_HQ).pid})
     g.start_total = [1.0, 1.0]   # 말을 지웠으니 '전체 전투력 30%' 패배가 바로 나지 않게
-    put(g, a.pid, (10, 50)); put(g, e.pid, (10, 51))
+    put(g, a.pid, (10, 30)); put(g, e.pid, (10, 31))
     for _ in range(20):
         if a.pid not in g.pieces or e.pid not in g.pieces or e.repairs:
             break
@@ -374,3 +377,46 @@ def test_cut_off_sightings_unknown_to_commander():
     put(g, a.pid, (15, 35)); put(g, e.pid, (16, 36))
     g._update_comm()
     assert e.pid in g.visible_enemies(0) and e.pid not in g.known_enemies(0)
+
+
+# ---------------- 강·지뢰지대 ----------------
+def test_map_is_point_symmetric_with_river_and_mines():
+    g = Game(Config(), rng=np.random.default_rng(3))
+    t = g.map.terrain
+    assert (t == t[::-1, ::-1]).all()
+    assert (t == RIVER).any() and (t == CROSSING).any() and (t == MINE).any()
+    zone = list(g.deploy_zone(0)) + list(g.deploy_zone(1))
+    assert all(t[r, c] not in (RIVER, MINE) for c, r in zone)
+
+
+def test_river_blocks_except_crossing():
+    g = flat_game()
+    W, mid = g.cfg.width, g.cfg.length // 2
+    t = g.map.terrain
+    t[mid - 1, :] = RIVER
+    t[mid, :] = RIVER
+    t[mid - 1, 5] = t[mid, 5] = CROSSING
+    g.map.clear_cache()
+    a = first(g, 0, TANK)
+    put(g, a.pid, (9, mid - 2))
+    opts = g.move_options(a)
+    assert all(t[h[1], h[0]] != RIVER for h in opts)
+    assert (5, mid) in opts                      # 도하 지점은 건널 수 있다
+    assert any(h[1] > mid for h in opts)         # 도하 지점을 지나 건너편으로
+
+
+def test_minefield_stops_and_damages():
+    g = flat_game()
+    a = first(g, 0, TANK)
+    put(g, a.pid, (10, 20))
+    t = g.map.terrain
+    t[21, 10] = MINE
+    g.map.clear_cache()
+    opts = g.move_options(a)
+    assert (10, 21) in opts
+    start = a.power
+    g.step([("move", a.pid, (10, 21))], [])
+    assert a.hex == (10, 21)
+    lost = start - a.power
+    assert lost > 0
+    assert sum(x[0] for x in a.repairs) == pytest.approx(lost * (1 - g.cfg.dmg_destroyed))

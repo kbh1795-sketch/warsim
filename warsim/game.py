@@ -68,7 +68,8 @@ class Game:
     # ------------------------------------------------------------ 시작
     def reset(self):
         c = self.cfg
-        self.map = HexMap.generate(c.width, c.length, c.mountain_fraction, self.rng)
+        self.map = HexMap.generate(c.width, c.length, c.mountain_fraction, self.rng,
+                                   c.river_crossings, c.mine_fraction, c.deploy_depth)
         self.turn = 0
         self.pieces = {}
         self._next_id = 0
@@ -398,6 +399,9 @@ class Game:
                 pc.moved = True
                 done.add(pc.pid)
                 self._log(side, o)
+                if self.map.is_mine(dest):  # 지뢰지대에 들어감
+                    self._damage(pc, self.cfg.mine_loss * pc.power)
+                    self.events.append(("mine", side, dest, dest))
 
     # 4~5. 사격
     def _eff_power(self, pc):
@@ -478,12 +482,15 @@ class Game:
 
         # 피해 적용: 마르코프 확률적 란체스터 (피해 단위 개수 ~ 포아송)
         for tid, exp_dmg in incoming.items():
-            t = self.pieces[tid]
-            q = t.spec.quantum
-            n = self.rng.poisson(exp_dmg / q)
-            loss = min(t.power, n * q)
-            if loss <= 0:
-                continue
+            self._damage(self.pieces[tid], exp_dmg)
+
+    def _damage(self, t, exp_dmg):
+        """기대 피해 exp_dmg 를 피해 단위(차량 1대분) 개수 ~ 포아송 으로 적용한다."""
+        c = self.cfg
+        q = t.spec.quantum
+        n = self.rng.poisson(exp_dmg / q)
+        loss = min(t.power, n * q)
+        if loss > 0:
             frac = loss / t.power if t.power > 0 else 1.0
             t.power -= loss
             # 완파 / 소파 / 중파 로 나눈다. 소파·중파는 수리되면 돌아온다.
@@ -497,6 +504,7 @@ class Game:
                 t.cargo_food *= 1 - frac
                 t.cargo_ammo *= 1 - frac
                 t.cargo_fuel *= 1 - frac
+        return loss
 
     # 6. 보급 (자동)
     def _near(self, pc, cands):

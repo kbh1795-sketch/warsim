@@ -7,14 +7,14 @@
 <style>
 :root {
   --bg: #f6f6f3; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #d9d8d2;
-  --flat: #e9eadf; --mount: #b9ad93; --grid: #d4d4c8;
+  --flat: #e9eadf; --mount: #b9ad93; --grid: #d4d4c8; --river: #8fb4d6; --mine: #d9a3a3;
   --blue: #2f5fb3; --blue-soft: #c9d6f0; --red: #b8322a; --red-soft: #f0cfcb;
   --accent: #1d1d1b;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #161714; --panel: #1f201d; --ink: #ecebe6; --muted: #9a9991; --line: #34352f;
-    --flat: #2a2c26; --mount: #4d4636; --grid: #3a3c34;
+    --flat: #2a2c26; --mount: #4d4636; --grid: #3a3c34; --river: #2f4a63; --mine: #6a3a3a;
     --blue: #6f9be6; --blue-soft: #263a5e; --red: #e2685f; --red-soft: #5a2826;
     --accent: #ecebe6;
   }
@@ -138,8 +138,9 @@ const gTerrain = el("g", {}, svg), gMarks = el("g", { "pointer-events": "none" }
       gPieces = el("g", { "pointer-events": "none" }, svg),
       gEvents = el("g", { "pointer-events": "none" }, svg), gSel = el("g", { "pointer-events": "none" }, svg);
 for (let r = 0; r < L; r++) for (let c = 0; c < W; c++) {
-  const m = DATA.terrain[r][c] === 1;
-  const p = el("polygon", { points: hexPts(c, r), fill: m ? "var(--mount)" : "var(--flat)",
+  const t = DATA.terrain[r][c];
+  const fill = ["var(--flat)", "var(--mount)", "var(--river)", "var(--flat)", "var(--mine)"][t];
+  const p = el("polygon", { points: hexPts(c, r), fill,
     stroke: "var(--grid)", "stroke-width": 0.4 }, gTerrain);
   p.addEventListener("click", () => { selected = [c, r]; draw(); });
 }
@@ -217,7 +218,7 @@ function draw() {
         stroke: col, "stroke-width": 1.2 }, gEvents);
       continue;
     }
-    if (type === "supply" || type === "repair") continue;
+    if (type === "supply" || type === "repair" || type === "mine") continue;
     const [x2, y2] = center(b[0], b[1]);
     const dash = type === "arty" ? "4 2" : type === "return" ? "1.2 1.2" : null;
     const attrs = { x1, y1, x2, y2, stroke: col, "stroke-width": type === "arty" ? 0.8 : 1, opacity: 0.85 };
@@ -250,7 +251,7 @@ function drawDetail(f) {
   if (!selected) return;
   const [c, r] = selected;
   const ps = visiblePieces(f).filter(p => p[3] === c && p[4] === r);
-  const terr = DATA.terrain[r][c] === 1 ? "산지" : "평지";
+  const terr = ["평지", "산지", "강", "도하 지점", "지뢰지대"][DATA.terrain[r][c]];
   let h = `<div class="hint">칸 (${c}, ${r}) · ${terr}</div>`;
   if (!ps.length) h += `<p class="empty">부대 없음</p>`;
   for (const p of ps) {
@@ -263,12 +264,12 @@ function drawDetail(f) {
   box.innerHTML = h;
 }
 function drawEvents(f) {
-  const n = { direct: [0, 0], return: [0, 0], arty: [0, 0], lost: [0, 0], repair: [0, 0] };
+  const n = { direct: [0, 0], return: [0, 0], arty: [0, 0], lost: [0, 0], repair: [0, 0], mine: [0, 0] };
   for (const e of f.events) if (n[e[0]]) n[e[0]][e[1]]++;
   const row = (lbl, k) => `${lbl} <span class="blue">${n[k][0]}</span> / <span class="red">${n[k][1]}</span>`;
   document.getElementById("events").innerHTML =
     [row("직사 공격", "direct"), row("응사", "return"), row("포병 사격", "arty"),
-     row("수리 복귀", "repair"), row("부대 제거", "lost")].join("<br>");
+     row("수리 복귀", "repair"), row("지뢰 피해", "mine"), row("부대 제거", "lost")].join("<br>");
 }
 // 전투력 추이 (전체 기간, 현재 위치 표시)
 const series = [0, 1].map(s => frames.map(f => sumPower(f, s)));
@@ -290,6 +291,8 @@ function drawChart() {
 document.getElementById("legend").innerHTML = MARK.map((m, i) =>
   `<span style="display:inline-grid;place-items:center;width:20px;height:15px;border-radius:3px;background:var(--blue);color:#fff;font-weight:700;font-size:11px">${m}</span><span>${KIND[i]}</span>`).join("") +
   `<span style="width:14px;height:14px;background:var(--mount);border-radius:2px"></span><span>산지</span>
+   <span style="width:14px;height:14px;background:var(--river);border-radius:2px"></span><span>강 (도하 지점만 건넘)</span>
+   <span style="width:14px;height:14px;background:var(--mine);border-radius:2px"></span><span>지뢰지대</span>
    <span style="width:12px;height:12px;border:1.5px solid var(--blue)"></span><span>보급기지</span>
    <span style="width:12px;height:12px;border:1.5px dashed var(--blue);border-radius:50%"></span><span>목표 지점 (그 진영 후방)</span>`;
 
