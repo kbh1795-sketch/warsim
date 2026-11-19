@@ -75,6 +75,7 @@ class Game:
         self._next_id = 0
         self.done = False
         self.winner = None
+        self.timed_out = False
         self.defeat_reason = [None, None]
         self.hold = [0, 0]  # hold[s]: 진영 s 가 상대 목표를 점유한 연속 턴 수
         self.history = []
@@ -312,7 +313,17 @@ class Game:
         self.turn += 1
         if not self.done and self.turn >= self.cfg.max_turns:
             self.done = True
+            self.timed_out = True   # 기한 내 목표 달성 실패 -> 양쪽 모두 패배
         return self.done, self.winner
+
+    def result(self, side):
+        """끝난 판의 점수: 승 +1, 패 -1. 기한 안에 아무도 못 이기면 양쪽 모두 -1.
+        양쪽이 같은 턴에 동시에 패배 조건에 걸린 경우만 0 (무승부)."""
+        if self.timed_out:
+            return -1.0
+        if self.winner is None:
+            return 0.0
+        return 1.0 if self.winner == side else -1.0
 
     def _log(self, side, order):
         if self.log_enabled:

@@ -36,4 +36,4 @@ def end_reason(game):
         return why[0]
     if max(game.hold) >= game.cfg.objective_hold_turns:
         return "목표 점유"
-    return "시간 종료"
+    return "시간 종료 (양쪽 모두 패배)"

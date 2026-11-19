@@ -420,3 +420,12 @@ def test_minefield_stops_and_damages():
     lost = start - a.power
     assert lost > 0
     assert sum(x[0] for x in a.repairs) == pytest.approx(lost * (1 - g.cfg.dmg_destroyed))
+
+
+def test_timeout_is_a_loss_for_both():
+    """기한 안에 아무도 목표를 달성하지 못하면 양쪽 모두 패배."""
+    g = flat_game(max_turns=3)
+    for _ in range(3):
+        g.step([], [])
+    assert g.done and g.timed_out and g.winner is None
+    assert g.result(0) == -1.0 and g.result(1) == -1.0

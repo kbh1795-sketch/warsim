@@ -172,7 +172,7 @@ class Trainer:
                 if s.game.done:
                     w = s.game.winner
                     for side in s.learn_sides():
-                        r = 0.0 if w is None else (1.0 if w == side else -1.0)
+                        r = s.game.result(side)
                         rew[t, e, side] = r
                         done[t, e, side] = True
                         self.bandit.update(s.tmpl[side], (r + 1) / 2)

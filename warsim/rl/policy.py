@@ -65,8 +65,8 @@ def match(pa, pb, cfg, n, rng):
                 o = [None, None]
                 o[a_side[i]], o[1 - a_side[i]] = oa[j], ob[j]
                 games[i].step(o[0], o[1])
-    w = sum(g.winner == s for g, s in zip(games, a_side))
-    d = sum(g.winner is None for g in games)
+    w = sum(g.result(s) > 0 for g, s in zip(games, a_side))
+    d = sum(g.result(s) == 0 for g, s in zip(games, a_side))   # 시간 종료는 패배로 센다
     return w, d, n - w - d
 
 
