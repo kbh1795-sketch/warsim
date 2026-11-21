@@ -14,6 +14,7 @@ def flat_game(comm=False, **kw):
     if not comm:
         kw.setdefault("comm_unit_range", 999)
         kw.setdefault("comm_bn_range", 999)
+    kw.setdefault("doctrine", False)   # 규칙 시험은 말을 직접 놓으므로 예규 이동은 끔
     kw.setdefault("river_crossings", 0)
     kw.setdefault("mine_fraction", 0.0)
     g = Game(Config(mountain_fraction=0.0, **kw), rng=np.random.default_rng(0))
@@ -429,3 +430,33 @@ def test_timeout_is_a_loss_for_both():
         g.step([], [])
     assert g.done and g.timed_out and g.winner is None
     assert g.result(0) == -1.0 and g.result(1) == -1.0
+
+
+# ---------------- 교리 (예규) ----------------
+def test_doctrine_moves_support_and_ignores_net_orders():
+    """예규가 켜지면 지휘·지원 말은 신경망 명령을 무시하고 기동 중대 뒤를 따라간다."""
+    g = flat_game(doctrine=True)
+    a = first(g, 0, TANK)
+    f = next(p for p in g.side_pieces(0) if p.kind == FSC and p.bn == a.bn)
+    hq = first(g, 0, BDE_HQ)
+    for p in g.side_pieces(0):
+        if p.bn == a.bn and p.kind not in (FSC, BN_HQ):
+            put(g, p.pid, (10, 20))
+    put(g, f.pid, (10, 2))
+    start_hq = hq.hex
+    g.step([("move", hq.pid, (0, 5))], [])     # 신경망이 여단본부를 옮기려 해도
+    assert hq.hex != (0, 5) or start_hq == (0, 5)
+    for _ in range(5):
+        g.step([], [])
+    assert f.hex[1] > 2 and f.hex[1] < 20                    # 앞으로 따라붙되 기동 중대보다 뒤
+    assert distance(f.hex, (10, 20)) <= g.cfg.supply_range
+
+
+def test_doctrine_kinds_not_controlled_by_net():
+    from warsim.rl.encode import encode
+    from warsim.doctrine import DOCTRINE_KINDS
+    g = flat_game(doctrine=True)
+    enc = encode(g, 0)
+    for i, pid in enumerate(enc.pids):
+        if enc.piece_mask[i] and g.pieces[int(pid)].kind in DOCTRINE_KINDS:
+            assert not enc.ctrl_mask[i]

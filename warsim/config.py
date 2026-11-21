@@ -53,6 +53,10 @@ class Config:
     dismount_mountain_mult: float = 1.0  # [개념] 하차 보병 산지 추가 배수 (민감도 분석)
     breakpoint: float = 0.3              # [근거] C-WAM: 남은 전투력 30% 미만이면 제거
 
+    # ---------------- 교리 (예규) ----------------
+    doctrine: bool = True                # 지휘·지원 말(여단·대대본부, 통신, 지원 중대)은 예규대로
+                                         #   움직이고 신경망은 기동부대만 지휘 (warsim/doctrine.py)
+
     # ---------------- 보급 (자동) ----------------
     # 보급 3일분 분담 [근거] army.mil "optimal employment of the FSC": 기동대대 1일차,
     #   전방지원중대 2일차, 여단지원대대 3일차. 기지(여단 바깥 상급 지원부대)는 무한.

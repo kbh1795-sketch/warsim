@@ -30,15 +30,15 @@ def test_move_direction_flips_for_side1():
     g = _game()
     for side in (0, 1):
         enc = encode(g, side)
-        p = g.pieces[int(enc.pids[0])]
+        i = int(np.flatnonzero(enc.ctrl_mask)[0])   # 신경망이 지휘하는 첫 말
+        p = g.pieces[int(enc.pids[i])]
         r0 = mirror(side, p.hex, g.cfg)[1]
-        act = {"type": np.full(64, 0), "move_dir": np.zeros(64, int), "move_dist": np.zeros(64, int),
-               "atk": np.zeros(64, int), "fire": np.zeros(64, int)}
-        act["type"][0] = MOVE
-        act["move_dist"][0] = 3
+        act = {k: np.zeros(P_MAX, int) for k in ("type", "move_dir", "move_dist", "atk", "fire")}
+        act["type"][i] = MOVE
+        act["move_dist"][i] = 3
         best = None
         for d in range(6):
-            act["move_dir"][0] = d
+            act["move_dir"][i] = d
             o = decode(g, side, enc, act)
             if o:
                 r1 = mirror(side, o[0][2], g.cfg)[1]

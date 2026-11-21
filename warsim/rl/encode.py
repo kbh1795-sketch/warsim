@@ -18,6 +18,7 @@
 
 import numpy as np
 
+from ..doctrine import DOCTRINE_KINDS
 from ..hexgrid import _CUBE_DIRS, distance, to_cube
 from ..hexgrid import MINE, MOUNTAIN, RIVER
 from ..units import (ARTY, BN_HQ, BRADLEY, CARGO_KINDS, DISMOUNT, INF, KIND_NAMES,
@@ -127,7 +128,7 @@ def encode(game, side):
         t[N_KIND + (p.bn if p.bn >= 0 else N_BN - 1)] = 1
         k = N_KIND + N_BN
         ok = p.pid in conn
-        ctrl_mask[i] = ok
+        ctrl_mask[i] = ok and not (game.cfg.doctrine and p.kind in DOCTRINE_KINDS)
         t[k + 13] = float(ok)
         t[k + 14] = p.cargo_food / p.cap_food if p.kind in CARGO_KINDS and p.cap_food else 0.0
         t[k + 15] = sum(x[0] for x in p.repairs) / max(p.start_power, 1e-9)  # 수리 대기 비율

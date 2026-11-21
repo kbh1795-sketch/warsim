@@ -39,6 +39,7 @@
 import numpy as np
 
 from .config import Config
+from .doctrine import DOCTRINE_KINDS, doctrine_orders
 from .hexgrid import HexMap, distance
 from .units import (ARTY, BDE_HQ, BN_HQ, BRADLEY, DISMOUNT, DISMOUNT_SHARE, INF,
                     FSC, KIND_SPECS, MAINT, MED, NO_SPLIT, RECON, SHARED, SIGNAL,
@@ -296,6 +297,10 @@ class Game:
             pc.moved = False
         for side in (0, 1):
             orders[side] = self._comm_filter(side, orders[side])
+            if self.cfg.doctrine:  # 지휘·지원 말은 예규대로 (신경망 명령은 무시)
+                orders[side] = [o for o in orders[side] if not (
+                    len(o) > 1 and o[1] in self.pieces
+                    and self.pieces[o[1]].kind in DOCTRINE_KINDS)] + doctrine_orders(self, side)
         for side in (0, 1):
             orders[side] = self._structural(side, orders[side])
         for side in (0, 1):

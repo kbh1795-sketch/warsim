@@ -14,10 +14,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .encode import (ATTACK, C_PLANES, DISTS, F_ATK, F_FIRE, F_GLB, F_TOK, FIRE, MOVE,
+from .encode import (HOLD, ATTACK, C_PLANES, DISTS, F_ATK, F_FIRE, F_GLB, F_TOK, FIRE, MOVE,
                      N_TYPE)
 
 NEG = -1e9
+HOLD_BIAS = 2.0
 
 
 def _masked_logits(logits, mask):
@@ -54,6 +55,9 @@ class Net(nn.Module):
         self.fire_in = nn.Linear(F_FIRE, d)
         self.fire_out = nn.Sequential(nn.ReLU(), nn.Linear(d, 1))
         self.value = nn.Sequential(nn.Linear(d, d), nn.ReLU(), nn.Linear(d, 1))
+        # 처음엔 '대기'를 더 자주 고르게 시작 (학습하면서 바뀜) [학습 초기값]
+        with torch.no_grad():
+            self.type_head.bias[HOLD] += HOLD_BIAS
 
     def forward(self, o):
         B, P = o["tokens"].shape[:2]
