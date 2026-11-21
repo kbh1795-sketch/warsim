@@ -439,8 +439,9 @@ def test_doctrine_moves_support_and_ignores_net_orders():
     a = first(g, 0, TANK)
     f = next(p for p in g.side_pieces(0) if p.kind == FSC and p.bn == a.bn)
     hq = first(g, 0, BDE_HQ)
+    from warsim.doctrine import DOCTRINE_KINDS
     for p in g.side_pieces(0):
-        if p.bn == a.bn and p.kind not in (FSC, BN_HQ):
+        if p.kind not in DOCTRINE_KINDS:       # 기동부대 전체가 앞으로 나감
             put(g, p.pid, (10, 20))
     put(g, f.pid, (10, 2))
     start_hq = hq.hex
