@@ -1,0 +1,1 @@
+{"n_envs": 8, "rollout": 32, "updates": 100000, "lr": 0.0003, "gamma": 0.999, "lam": 0.95, "clip": 0.2, "epochs": 3, "minibatch": 64, "ent_coef": 0.02, "vf_coef": 0.5, "self_play": 0.5, "eval_every": 50, "eval_games": 8, "threads": 0, "out": "runs/run4", "rng": 0}
